@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import sys
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
@@ -171,6 +172,10 @@ class GridLabelingApp:
         self.root.bind_all("<Command-Z>", self._on_undo_shortcut)
         self.root.bind_all("<Command-KeyPress-z>", self._on_undo_shortcut)
         self.root.bind_all("<Command-KeyPress-Z>", self._on_undo_shortcut)
+        self.root.bind_all("<Mod2-z>", self._on_undo_shortcut)
+        self.root.bind_all("<Mod2-Z>", self._on_undo_shortcut)
+        self.root.bind_all("<Mod1-z>", self._on_undo_shortcut)
+        self.root.bind_all("<Mod1-Z>", self._on_undo_shortcut)
         self.root.bind_all("<Command-y>", self._on_redo_shortcut)
         self.root.bind_all("<Command-Y>", self._on_redo_shortcut)
         self.root.bind_all("<Command-KeyPress-y>", self._on_redo_shortcut)
@@ -179,17 +184,39 @@ class GridLabelingApp:
         self.root.bind_all("<Command-Shift-Z>", self._on_redo_shortcut)
         self.root.bind_all("<Command-Shift-KeyPress-z>", self._on_redo_shortcut)
         self.root.bind_all("<Command-Shift-KeyPress-Z>", self._on_redo_shortcut)
+        self.root.bind_all("<Mod2-y>", self._on_redo_shortcut)
+        self.root.bind_all("<Mod2-Y>", self._on_redo_shortcut)
+        self.root.bind_all("<Mod1-y>", self._on_redo_shortcut)
+        self.root.bind_all("<Mod1-Y>", self._on_redo_shortcut)
+        self.root.bind_all("<Mod2-Shift-z>", self._on_redo_shortcut)
+        self.root.bind_all("<Mod2-Shift-Z>", self._on_redo_shortcut)
+        self.root.bind_all("<Mod1-Shift-z>", self._on_redo_shortcut)
+        self.root.bind_all("<Mod1-Shift-Z>", self._on_redo_shortcut)
         self.root.bind_all("<Command-c>", self._on_copy_shortcut)
         self.root.bind_all("<Command-C>", self._on_copy_shortcut)
         self.root.bind_all("<Command-v>", self._on_paste_shortcut)
         self.root.bind_all("<Command-V>", self._on_paste_shortcut)
         self.root.bind_all("<Command-s>", self._on_save_shortcut)
         self.root.bind_all("<Command-S>", self._on_save_shortcut)
+        self.root.bind_all("<Mod2-c>", self._on_copy_shortcut)
+        self.root.bind_all("<Mod2-C>", self._on_copy_shortcut)
+        self.root.bind_all("<Mod2-v>", self._on_paste_shortcut)
+        self.root.bind_all("<Mod2-V>", self._on_paste_shortcut)
+        self.root.bind_all("<Mod2-s>", self._on_save_shortcut)
+        self.root.bind_all("<Mod2-S>", self._on_save_shortcut)
+        self.root.bind_all("<Mod1-c>", self._on_copy_shortcut)
+        self.root.bind_all("<Mod1-C>", self._on_copy_shortcut)
+        self.root.bind_all("<Mod1-v>", self._on_paste_shortcut)
+        self.root.bind_all("<Mod1-V>", self._on_paste_shortcut)
+        self.root.bind_all("<Mod1-s>", self._on_save_shortcut)
+        self.root.bind_all("<Mod1-S>", self._on_save_shortcut)
         self.root.bind_all("<<Undo>>", self._on_undo_shortcut)
         self.root.bind_all("<<Redo>>", self._on_redo_shortcut)
         self.root.bind_all("<<Copy>>", self._on_copy_shortcut)
         self.root.bind_all("<<Paste>>", self._on_paste_shortcut)
         self.root.bind_all("<Command-KeyPress>", self._on_command_keypress)
+        self.root.bind_all("<Mod2-KeyPress>", self._on_command_keypress)
+        self.root.bind_all("<Mod1-KeyPress>", self._on_command_keypress)
         self.root.bind_all("<Meta-KeyPress>", self._on_command_keypress)
         self.root.bind_all("<Control-Left>", lambda e: self._on_grid_nudge_shortcut(e, dx=-1, dy=0))
         self.root.bind_all("<Control-Right>", lambda e: self._on_grid_nudge_shortcut(e, dx=1, dy=0))
@@ -199,6 +226,14 @@ class GridLabelingApp:
         self.root.bind_all("<Command-Right>", lambda e: self._on_grid_nudge_shortcut(e, dx=1, dy=0))
         self.root.bind_all("<Command-Up>", lambda e: self._on_grid_nudge_shortcut(e, dx=0, dy=-1))
         self.root.bind_all("<Command-Down>", lambda e: self._on_grid_nudge_shortcut(e, dx=0, dy=1))
+        self.root.bind_all("<Mod2-Left>", lambda e: self._on_grid_nudge_shortcut(e, dx=-1, dy=0))
+        self.root.bind_all("<Mod2-Right>", lambda e: self._on_grid_nudge_shortcut(e, dx=1, dy=0))
+        self.root.bind_all("<Mod2-Up>", lambda e: self._on_grid_nudge_shortcut(e, dx=0, dy=-1))
+        self.root.bind_all("<Mod2-Down>", lambda e: self._on_grid_nudge_shortcut(e, dx=0, dy=1))
+        self.root.bind_all("<Mod1-Left>", lambda e: self._on_grid_nudge_shortcut(e, dx=-1, dy=0))
+        self.root.bind_all("<Mod1-Right>", lambda e: self._on_grid_nudge_shortcut(e, dx=1, dy=0))
+        self.root.bind_all("<Mod1-Up>", lambda e: self._on_grid_nudge_shortcut(e, dx=0, dy=-1))
+        self.root.bind_all("<Mod1-Down>", lambda e: self._on_grid_nudge_shortcut(e, dx=0, dy=1))
         self.root.bind_all("<<Clear>>", self._on_delete_selected)
         self.root.bind_all("<Left>", lambda e: self._on_nudge_key(e, dx=-1, dy=0))
         self.root.bind_all("<Right>", lambda e: self._on_nudge_key(e, dx=1, dy=0))
@@ -287,6 +322,21 @@ class GridLabelingApp:
 
         status = ttk.Label(root, textvariable=self.status_var, anchor="w", padding=(8, 4))
         status.grid(row=1, column=0, columnspan=3, sticky="ew")
+
+        # On macOS, default widget/menu class bindings can consume Command shortcuts
+        # before app-level handlers. Promote the toplevel bindtag ahead of class tags.
+        if sys.platform == "darwin":
+            self._promote_root_bindtag(self.root)
+
+    def _promote_root_bindtag(self, widget: tk.Misc) -> None:
+        root_tag = str(self.root)
+        tags = list(widget.bindtags())
+        if root_tag in tags and len(tags) >= 2:
+            tags = [tag for tag in tags if tag != root_tag]
+            tags.insert(1, root_tag)
+            widget.bindtags(tuple(tags))
+        for child in widget.winfo_children():
+            self._promote_root_bindtag(child)
 
     def choose_folder(self) -> None:
         folder = filedialog.askdirectory(title="이미지 폴더 선택")
