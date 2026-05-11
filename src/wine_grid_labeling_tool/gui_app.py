@@ -53,8 +53,8 @@ class GridLabelingApp:
         self.drag_anchor: tuple[float, float] | None = None
         self.drag_rect_id: int | None = None
         self.drag_additive: bool = False
-        self.point_drag_id: str | None = None
-        self.point_drag_offset: tuple[float, float] | None = None
+        self.point_drag_ids: set[str] | None = None
+        self.point_drag_offsets: dict[str, tuple[float, float]] | None = None
         self.pan_anchor: tuple[float, float] | None = None
         self.pan_anchor_offset: tuple[float, float] | None = None
 
@@ -69,7 +69,9 @@ class GridLabelingApp:
         self.total_points_var = tk.StringVar(value="전체 점 수: 0")
         self.missing_col_var = tk.StringVar(value="col 미지정 점 수: 0")
         self.missing_row_var = tk.StringVar(value="row 미지정 점 수: 0")
-        self.copied_grid_values: list[dict[str, int | None]] = []
+        self.copied_objects: list[GridObject] = []
+        self.paste_serial = 0
+        self.paste_offset_px = (12.0, 12.0)
         self.live_apply_suspended = False
         self.live_apply_after_id: str | None = None
         self.quick_input_buffer = ""
@@ -581,7 +583,18 @@ class GridLabelingApp:
             if not shift_pressed:
                 hovered = self._find_nearest_object(x_img, y_img)
                 if hovered is not None and self._is_position_editable(hovered):
-                    self._start_point_drag(hovered, x_img, y_img)
+                    if hovered.object_id in self.selected_ids:
+                        drag_ids = {
+                            obj.object_id
+                            for obj in self.current_state.objects
+                            if obj.object_id in self.selected_ids and self._is_position_editable(obj)
+                        }
+                        if not drag_ids:
+                            return
+                    else:
+                        drag_ids = {hovered.object_id}
+                        self.selected_ids = {hovered.object_id}
+                    self._start_point_drag(drag_ids, x_img, y_img)
                     return
             self._start_drag_box(event.x, event.y, additive=shift_pressed)
             return
@@ -607,19 +620,22 @@ class GridLabelingApp:
             self._draw_scene()
             return
 
-        if self.point_drag_id is not None and self.point_drag_offset is not None and self.current_state is not None:
+        if self.point_drag_ids is not None and self.point_drag_offsets is not None and self.current_state is not None:
             x_img, y_img = self._to_image(event.x, event.y)
             if x_img is None or y_img is None:
                 return
-            obj = next((o for o in self.current_state.objects if o.object_id == self.point_drag_id), None)
-            if obj is None:
-                return
             width, height = self.image_size
-            target_x = min(max(x_img + self.point_drag_offset[0], 0.0), max(width - 1.0, 0.0))
-            target_y = min(max(y_img + self.point_drag_offset[1], 0.0), max(height - 1.0, 0.0))
-            obj.px = target_x
-            obj.py = target_y
-            obj.points = [[target_x, target_y]]
+            for obj in self.current_state.objects:
+                if obj.object_id not in self.point_drag_ids:
+                    continue
+                offset = self.point_drag_offsets.get(obj.object_id)
+                if offset is None:
+                    continue
+                target_x = min(max(x_img + offset[0], 0.0), max(width - 1.0, 0.0))
+                target_y = min(max(y_img + offset[1], 0.0), max(height - 1.0, 0.0))
+                obj.px = target_x
+                obj.py = target_y
+                obj.points = [[target_x, target_y]]
             self.current_state.dirty = True
             self._request_redraw()
             return
@@ -636,9 +652,9 @@ class GridLabelingApp:
             self.canvas.configure(cursor="")
             return
 
-        if self.point_drag_id is not None:
-            self.point_drag_id = None
-            self.point_drag_offset = None
+        if self.point_drag_ids is not None:
+            self.point_drag_ids = None
+            self.point_drag_offsets = None
             self.canvas.configure(cursor="")
             self._sync_editor_with_selection()
             self._request_redraw()
@@ -868,52 +884,75 @@ class GridLabelingApp:
         if focus_widget is not None and str(focus_widget.winfo_class()) in {"Entry", "TEntry"}:
             return None
 
-        selected_objects = [obj for obj in self.current_state.objects if obj.object_id in self.selected_ids]
+        selected_objects = [
+            obj
+            for obj in self.current_state.objects
+            if obj.object_id in self.selected_ids and obj.shape_type == "point"
+        ]
         if not selected_objects:
+            self.status_var.set("복사할 수 있는 point 객체가 선택되어 있지 않습니다.")
             return "break"
 
         selected_objects.sort(key=lambda o: (o.py, o.px, o.object_id))
-        self.copied_grid_values = [{"col": obj.col, "row": obj.row} for obj in selected_objects]
-        self.status_var.set(f"{len(self.copied_grid_values)}개 객체 col,row 복사됨")
+        self.copied_objects = [copy.deepcopy(obj) for obj in selected_objects]
+        self.paste_serial = 0
+        self.status_var.set(f"{len(self.copied_objects)}개 점 객체 복사됨")
         return "break"
 
     def _on_paste_shortcut(self, _event: tk.Event) -> str | None:
-        if not self.current_state or not self.selected_ids:
+        if not self.current_state:
             return None
         focus_widget = self.root.focus_get()
         if focus_widget is not None and str(focus_widget.winfo_class()) in {"Entry", "TEntry"}:
             return None
-        if not self.copied_grid_values:
+        if not self.copied_objects:
             messagebox.showinfo("붙여넣기 불가", "먼저 Ctrl+C로 복사하세요.")
             return "break"
 
-        selected_objects = [obj for obj in self.current_state.objects if obj.object_id in self.selected_ids]
-        if not selected_objects:
-            return "break"
-        selected_objects.sort(key=lambda o: (o.py, o.px, o.object_id))
+        self._push_undo_state()
+        self.paste_serial += 1
+        dx = self.paste_offset_px[0] * self.paste_serial
+        dy = self.paste_offset_px[1] * self.paste_serial
+        width, height = self.image_size
+        if width <= 0 or height <= 0:
+            source_img = self._get_source_image(self.current_state.image_path)
+            if source_img is not None:
+                width, height = source_img.width, source_img.height
 
-        if len(self.copied_grid_values) == 1:
-            self._push_undo_state()
-            src = self.copied_grid_values[0]
-            for obj in selected_objects:
-                obj.col = src["col"]
-                obj.row = src["row"]
-        elif len(self.copied_grid_values) == len(selected_objects):
-            self._push_undo_state()
-            for obj, src in zip(selected_objects, self.copied_grid_values):
-                obj.col = src["col"]
-                obj.row = src["row"]
-        else:
-            messagebox.showinfo(
-                "붙여넣기 불가",
-                "복사한 객체 수와 현재 선택 수가 다릅니다. 하나만 복사하거나 같은 개수를 선택하세요.",
+        new_selected_ids: set[str] = set()
+        for src in self.copied_objects:
+            raw_x = src.px + dx
+            raw_y = src.py + dy
+            if width > 0 and height > 0:
+                new_x = min(max(raw_x, 0.0), width - 1.0)
+                new_y = min(max(raw_y, 0.0), height - 1.0)
+            else:
+                new_x = raw_x
+                new_y = raw_y
+
+            new_id = f"m{self.next_manual_id}"
+            self.next_manual_id += 1
+            new_obj = GridObject(
+                object_id=new_id,
+                px=new_x,
+                py=new_y,
+                col=src.col,
+                row=src.row,
+                source="manual",
+                label=src.label or "empty_slot",
+                shape_type="point",
+                points=[[new_x, new_y]],
+                original_shapes=[],
             )
-            return "break"
+            self.current_state.objects.append(new_obj)
+            new_selected_ids.add(new_id)
 
         self.current_state.dirty = True
+        self.selected_ids = new_selected_ids
+        self._clear_quick_input_buffer()
         self._sync_editor_with_selection()
         self._draw_scene()
-        self.status_var.set(f"{len(selected_objects)}개 객체에 col,row 붙여넣기 완료")
+        self.status_var.set(f"{len(new_selected_ids)}개 점 객체 붙여넣기 완료")
         return "break"
 
     def _on_quick_numeric_input(self, event: tk.Event) -> str | None:
@@ -1125,17 +1164,22 @@ class GridLabelingApp:
         self.pan_anchor_offset = (self.offset_x, self.offset_y)
         self.canvas.configure(cursor="fleur")
 
-    def _start_point_drag(self, obj: GridObject, x_img: float, y_img: float) -> None:
+    def _start_point_drag(self, drag_ids: set[str], x_img: float, y_img: float) -> None:
         if not self.current_state:
             return
+        drag_objects = [obj for obj in self.current_state.objects if obj.object_id in drag_ids]
+        if not drag_objects:
+            return
         self._push_undo_state()
-        self.point_drag_id = obj.object_id
-        self.point_drag_offset = (obj.px - x_img, obj.py - y_img)
-        self.selected_ids = {obj.object_id}
+        self.point_drag_ids = {obj.object_id for obj in drag_objects}
+        self.point_drag_offsets = {
+            obj.object_id: (obj.px - x_img, obj.py - y_img)
+            for obj in drag_objects
+        }
         self.canvas.configure(cursor="fleur")
 
     def _is_position_editable(self, obj: GridObject) -> bool:
-        return obj.source == "manual" and obj.shape_type == "point"
+        return obj.shape_type == "point"
 
     def _add_manual_point(self, px: float, py: float) -> None:
         if not self.current_state:
