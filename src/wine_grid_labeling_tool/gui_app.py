@@ -47,6 +47,7 @@ class GridLabelingApp:
 
         self.selected_ids: set[str] = set()
         self.undo_stack: list[list[GridObject]] = []
+        self.redo_stack: list[list[GridObject]] = []
         self.next_manual_id = 0
         self.drag_anchor: tuple[float, float] | None = None
         self.drag_rect_id: int | None = None
@@ -125,6 +126,13 @@ class GridLabelingApp:
         self.canvas.bind("<MouseWheel>", self._on_mouse_wheel)
         self.canvas.bind("<Configure>", lambda _e: self._draw_scene())
         self.root.bind_all("<Control-z>", self._on_undo_shortcut)
+        self.root.bind_all("<Control-Z>", self._on_undo_shortcut)
+        self.root.bind_all("<Control-KeyPress-z>", self._on_undo_shortcut)
+        self.root.bind_all("<Control-KeyPress-Z>", self._on_undo_shortcut)
+        self.root.bind_all("<Control-y>", self._on_redo_shortcut)
+        self.root.bind_all("<Control-Y>", self._on_redo_shortcut)
+        self.root.bind_all("<Control-KeyPress-y>", self._on_redo_shortcut)
+        self.root.bind_all("<Control-KeyPress-Y>", self._on_redo_shortcut)
         self.root.bind_all("<Left>", lambda e: self._on_nudge_key(e, dx=-1, dy=0))
         self.root.bind_all("<Right>", lambda e: self._on_nudge_key(e, dx=1, dy=0))
         self.root.bind_all("<Up>", lambda e: self._on_nudge_key(e, dx=0, dy=-1))
@@ -268,6 +276,7 @@ class GridLabelingApp:
         self.pan_x = 0.0
         self.pan_y = 0.0
         self.undo_stack.clear()
+        self.redo_stack.clear()
         self.selected_ids.clear()
         self.next_manual_id = self._compute_next_manual_id()
 
@@ -618,6 +627,10 @@ class GridLabelingApp:
 
     def _on_undo_shortcut(self, _event: tk.Event) -> str:
         self.undo_last_action()
+        return "break"
+
+    def _on_redo_shortcut(self, _event: tk.Event) -> str:
+        self.redo_last_action()
         return "break"
 
     def _on_shortcut_add_mode(self, _event: tk.Event) -> str:
@@ -1139,6 +1152,7 @@ class GridLabelingApp:
     def undo_last_action(self) -> None:
         if not self.current_state or not self.undo_stack:
             return
+        self.redo_stack.append(copy.deepcopy(self.current_state.objects))
         self.current_state.objects = self.undo_stack.pop()
         self.current_state.dirty = True
         self.selected_ids.clear()
@@ -1147,10 +1161,23 @@ class GridLabelingApp:
         self._draw_scene()
         self.status_var.set("되돌리기 완료")
 
+    def redo_last_action(self) -> None:
+        if not self.current_state or not self.redo_stack:
+            return
+        self.undo_stack.append(copy.deepcopy(self.current_state.objects))
+        self.current_state.objects = self.redo_stack.pop()
+        self.current_state.dirty = True
+        self.selected_ids.clear()
+        self.next_manual_id = self._compute_next_manual_id()
+        self._sync_editor_with_selection()
+        self._draw_scene()
+        self.status_var.set("다시 실행 완료")
+
     def _push_undo_state(self) -> None:
         if not self.current_state:
             return
         self.undo_stack.append(copy.deepcopy(self.current_state.objects))
+        self.redo_stack.clear()
         if len(self.undo_stack) > 100:
             self.undo_stack.pop(0)
 
