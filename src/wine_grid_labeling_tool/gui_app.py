@@ -73,6 +73,33 @@ class GridLabelingApp:
         self.live_apply_after_id: str | None = None
         self.quick_input_buffer = ""
         self.quick_input_after_id: str | None = None
+        # Keycode fallback for shortcuts across different layouts/IME states.
+        # Windows VK + macOS ANSI keycodes.
+        self.shortcut_keycodes: dict[str, set[int]] = {
+            "a": {65, 0},
+            "c": {67, 8},
+            "d": {68, 2},
+            "e": {69, 14},
+            "f": {70, 3},
+            "r": {82, 15},
+            "s": {83, 1},
+            "v": {86, 9},
+            "y": {89, 16},
+            "z": {90, 6},
+        }
+        # Korean 2-set IME fallback chars for the same physical keys.
+        self.shortcut_hangul_chars: dict[str, set[str]] = {
+            "a": {"ㅁ"},
+            "c": {"ㅊ"},
+            "d": {"ㅇ"},
+            "e": {"ㄷ", "ㄸ"},
+            "f": {"ㄹ"},
+            "r": {"ㄱ", "ㄲ"},
+            "s": {"ㄴ"},
+            "v": {"ㅍ"},
+            "y": {"ㅛ"},
+            "z": {"ㅋ"},
+        }
 
         self._build_ui()
 
@@ -125,36 +152,13 @@ class GridLabelingApp:
         self.canvas.bind("<Motion>", self._on_canvas_motion)
         self.canvas.bind("<MouseWheel>", self._on_mouse_wheel)
         self.canvas.bind("<Configure>", lambda _e: self._draw_scene())
-        self.root.bind_all("<Control-z>", self._on_undo_shortcut)
-        self.root.bind_all("<Control-Z>", self._on_undo_shortcut)
-        self.root.bind_all("<Control-KeyPress-z>", self._on_undo_shortcut)
-        self.root.bind_all("<Control-KeyPress-Z>", self._on_undo_shortcut)
-        self.root.bind_all("<Control-y>", self._on_redo_shortcut)
-        self.root.bind_all("<Control-Y>", self._on_redo_shortcut)
-        self.root.bind_all("<Control-KeyPress-y>", self._on_redo_shortcut)
-        self.root.bind_all("<Control-KeyPress-Y>", self._on_redo_shortcut)
+        self.root.bind_all("<Control-KeyPress>", self._on_control_keypress)
         self.root.bind_all("<Left>", lambda e: self._on_nudge_key(e, dx=-1, dy=0))
         self.root.bind_all("<Right>", lambda e: self._on_nudge_key(e, dx=1, dy=0))
         self.root.bind_all("<Up>", lambda e: self._on_nudge_key(e, dx=0, dy=-1))
         self.root.bind_all("<Down>", lambda e: self._on_nudge_key(e, dx=0, dy=1))
-        self.root.bind_all("<KeyPress-r>", self._on_shortcut_add_mode)
-        self.root.bind_all("<KeyPress-R>", self._on_shortcut_add_mode)
-        self.root.bind_all("<KeyPress-e>", self._on_shortcut_select_mode)
-        self.root.bind_all("<KeyPress-E>", self._on_shortcut_select_mode)
-        self.root.bind_all("<KeyPress-f>", self._on_shortcut_fit_view)
-        self.root.bind_all("<KeyPress-F>", self._on_shortcut_fit_view)
-        self.root.bind_all("<KeyPress-a>", self._on_prev_image_shortcut)
-        self.root.bind_all("<KeyPress-A>", self._on_prev_image_shortcut)
-        self.root.bind_all("<KeyPress-d>", self._on_next_image_shortcut)
-        self.root.bind_all("<KeyPress-D>", self._on_next_image_shortcut)
         self.root.bind_all("<Delete>", self._on_delete_selected)
-        self.root.bind_all("<Control-c>", self._on_copy_shortcut)
-        self.root.bind_all("<Control-C>", self._on_copy_shortcut)
-        self.root.bind_all("<Control-v>", self._on_paste_shortcut)
-        self.root.bind_all("<Control-V>", self._on_paste_shortcut)
-        self.root.bind_all("<Control-s>", self._on_save_shortcut)
-        self.root.bind_all("<Control-S>", self._on_save_shortcut)
-        self.root.bind_all("<KeyPress>", self._on_quick_numeric_input)
+        self.root.bind_all("<KeyPress>", self._on_global_keypress)
 
         right = ttk.Frame(root, padding=8)
         right.grid(row=0, column=2, sticky="nse")
@@ -632,6 +636,55 @@ class GridLabelingApp:
     def _on_redo_shortcut(self, _event: tk.Event) -> str:
         self.redo_last_action()
         return "break"
+
+    def _event_matches_shortcut(self, event: tk.Event, key: str) -> bool:
+        key_lower = key.lower()
+        keysym = (event.keysym or "").lower()
+        if keysym == key_lower:
+            return True
+        char = (event.char or "").lower()
+        if char == key_lower:
+            return True
+        raw_keysym = event.keysym or ""
+        if raw_keysym in self.shortcut_hangul_chars.get(key_lower, set()):
+            return True
+        raw_char = event.char or ""
+        if raw_char in self.shortcut_hangul_chars.get(key_lower, set()):
+            return True
+        return event.keycode in self.shortcut_keycodes.get(key_lower, set())
+
+    def _on_control_keypress(self, event: tk.Event) -> str | None:
+        if self._event_matches_shortcut(event, "z"):
+            return self._on_undo_shortcut(event)
+        if self._event_matches_shortcut(event, "y"):
+            return self._on_redo_shortcut(event)
+        if self._event_matches_shortcut(event, "c"):
+            return self._on_copy_shortcut(event)
+        if self._event_matches_shortcut(event, "v"):
+            return self._on_paste_shortcut(event)
+        if self._event_matches_shortcut(event, "s"):
+            return self._on_save_shortcut(event)
+        return None
+
+    def _on_global_keypress(self, event: tk.Event) -> str | None:
+        if event.state & 0x0004:
+            return None
+        focus_widget = self.root.focus_get()
+        if focus_widget is not None and str(focus_widget.winfo_class()) in {"Entry", "TEntry"}:
+            return None
+
+        if self._event_matches_shortcut(event, "r"):
+            return self._on_shortcut_add_mode(event)
+        if self._event_matches_shortcut(event, "e"):
+            return self._on_shortcut_select_mode(event)
+        if self._event_matches_shortcut(event, "f"):
+            return self._on_shortcut_fit_view(event)
+        if self._event_matches_shortcut(event, "a"):
+            return self._on_prev_image_shortcut(event)
+        if self._event_matches_shortcut(event, "d"):
+            return self._on_next_image_shortcut(event)
+
+        return self._on_quick_numeric_input(event)
 
     def _on_shortcut_add_mode(self, _event: tk.Event) -> str:
         self._set_mode("add", "모드: 점 추가")
