@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+dist/
+build/
+*.egg-info/
+*.log
+*.grid_labels.json
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+datasets/
+*.pptx
