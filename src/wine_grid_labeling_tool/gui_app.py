@@ -152,7 +152,54 @@ class GridLabelingApp:
         self.canvas.bind("<Motion>", self._on_canvas_motion)
         self.canvas.bind("<MouseWheel>", self._on_mouse_wheel)
         self.canvas.bind("<Configure>", lambda _e: self._draw_scene())
+        self.root.bind_all("<Control-z>", self._on_undo_shortcut)
+        self.root.bind_all("<Control-Z>", self._on_undo_shortcut)
+        self.root.bind_all("<Control-KeyPress-z>", self._on_undo_shortcut)
+        self.root.bind_all("<Control-KeyPress-Z>", self._on_undo_shortcut)
+        self.root.bind_all("<Control-y>", self._on_redo_shortcut)
+        self.root.bind_all("<Control-Y>", self._on_redo_shortcut)
+        self.root.bind_all("<Control-KeyPress-y>", self._on_redo_shortcut)
+        self.root.bind_all("<Control-KeyPress-Y>", self._on_redo_shortcut)
+        self.root.bind_all("<Control-c>", self._on_copy_shortcut)
+        self.root.bind_all("<Control-C>", self._on_copy_shortcut)
+        self.root.bind_all("<Control-v>", self._on_paste_shortcut)
+        self.root.bind_all("<Control-V>", self._on_paste_shortcut)
+        self.root.bind_all("<Control-s>", self._on_save_shortcut)
+        self.root.bind_all("<Control-S>", self._on_save_shortcut)
         self.root.bind_all("<Control-KeyPress>", self._on_control_keypress)
+        self.root.bind_all("<Command-z>", self._on_undo_shortcut)
+        self.root.bind_all("<Command-Z>", self._on_undo_shortcut)
+        self.root.bind_all("<Command-KeyPress-z>", self._on_undo_shortcut)
+        self.root.bind_all("<Command-KeyPress-Z>", self._on_undo_shortcut)
+        self.root.bind_all("<Command-y>", self._on_redo_shortcut)
+        self.root.bind_all("<Command-Y>", self._on_redo_shortcut)
+        self.root.bind_all("<Command-KeyPress-y>", self._on_redo_shortcut)
+        self.root.bind_all("<Command-KeyPress-Y>", self._on_redo_shortcut)
+        self.root.bind_all("<Command-Shift-z>", self._on_redo_shortcut)
+        self.root.bind_all("<Command-Shift-Z>", self._on_redo_shortcut)
+        self.root.bind_all("<Command-Shift-KeyPress-z>", self._on_redo_shortcut)
+        self.root.bind_all("<Command-Shift-KeyPress-Z>", self._on_redo_shortcut)
+        self.root.bind_all("<Command-c>", self._on_copy_shortcut)
+        self.root.bind_all("<Command-C>", self._on_copy_shortcut)
+        self.root.bind_all("<Command-v>", self._on_paste_shortcut)
+        self.root.bind_all("<Command-V>", self._on_paste_shortcut)
+        self.root.bind_all("<Command-s>", self._on_save_shortcut)
+        self.root.bind_all("<Command-S>", self._on_save_shortcut)
+        self.root.bind_all("<<Undo>>", self._on_undo_shortcut)
+        self.root.bind_all("<<Redo>>", self._on_redo_shortcut)
+        self.root.bind_all("<<Copy>>", self._on_copy_shortcut)
+        self.root.bind_all("<<Paste>>", self._on_paste_shortcut)
+        self.root.bind_all("<Command-KeyPress>", self._on_command_keypress)
+        self.root.bind_all("<Meta-KeyPress>", self._on_command_keypress)
+        self.root.bind_all("<Control-Left>", lambda e: self._on_grid_nudge_shortcut(e, dx=-1, dy=0))
+        self.root.bind_all("<Control-Right>", lambda e: self._on_grid_nudge_shortcut(e, dx=1, dy=0))
+        self.root.bind_all("<Control-Up>", lambda e: self._on_grid_nudge_shortcut(e, dx=0, dy=-1))
+        self.root.bind_all("<Control-Down>", lambda e: self._on_grid_nudge_shortcut(e, dx=0, dy=1))
+        self.root.bind_all("<Command-Left>", lambda e: self._on_grid_nudge_shortcut(e, dx=-1, dy=0))
+        self.root.bind_all("<Command-Right>", lambda e: self._on_grid_nudge_shortcut(e, dx=1, dy=0))
+        self.root.bind_all("<Command-Up>", lambda e: self._on_grid_nudge_shortcut(e, dx=0, dy=-1))
+        self.root.bind_all("<Command-Down>", lambda e: self._on_grid_nudge_shortcut(e, dx=0, dy=1))
+        self.root.bind_all("<<Clear>>", self._on_delete_selected)
         self.root.bind_all("<Left>", lambda e: self._on_nudge_key(e, dx=-1, dy=0))
         self.root.bind_all("<Right>", lambda e: self._on_nudge_key(e, dx=1, dy=0))
         self.root.bind_all("<Up>", lambda e: self._on_nudge_key(e, dx=0, dy=-1))
@@ -666,6 +713,19 @@ class GridLabelingApp:
             return self._on_save_shortcut(event)
         return None
 
+    def _on_command_keypress(self, event: tk.Event) -> str | None:
+        if self._event_matches_shortcut(event, "z"):
+            return self._on_undo_shortcut(event)
+        if self._event_matches_shortcut(event, "y"):
+            return self._on_redo_shortcut(event)
+        if self._event_matches_shortcut(event, "c"):
+            return self._on_copy_shortcut(event)
+        if self._event_matches_shortcut(event, "v"):
+            return self._on_paste_shortcut(event)
+        if self._event_matches_shortcut(event, "s"):
+            return self._on_save_shortcut(event)
+        return None
+
     def _on_global_keypress(self, event: tk.Event) -> str | None:
         if event.state & 0x0004:
             return None
@@ -685,6 +745,9 @@ class GridLabelingApp:
             return self._on_next_image_shortcut(event)
 
         return self._on_quick_numeric_input(event)
+
+    def _on_grid_nudge_shortcut(self, event: tk.Event, dx: int, dy: int) -> str | None:
+        return self._on_nudge_key(event, dx=dx, dy=dy, force_grid_edit=True)
 
     def _on_shortcut_add_mode(self, _event: tk.Event) -> str:
         self._set_mode("add", "모드: 점 추가")
@@ -880,7 +943,7 @@ class GridLabelingApp:
         self._draw_scene()
         self.status_var.set(f"{target}={value} 객체 {len(matched)}개 선택됨")
 
-    def _on_nudge_key(self, _event: tk.Event, dx: int, dy: int) -> str | None:
+    def _on_nudge_key(self, _event: tk.Event, dx: int, dy: int, force_grid_edit: bool = False) -> str | None:
         if not self.current_state or not self.selected_ids:
             return None
 
@@ -888,7 +951,7 @@ class GridLabelingApp:
         if focus_widget is not None and str(focus_widget.winfo_class()) in {"Entry", "TEntry"}:
             return None
 
-        ctrl_pressed = bool(_event.state & 0x0004)
+        ctrl_pressed = force_grid_edit or bool(_event.state & 0x0004)
         selected_objects = [obj for obj in self.current_state.objects if obj.object_id in self.selected_ids]
         if not selected_objects:
             return None
