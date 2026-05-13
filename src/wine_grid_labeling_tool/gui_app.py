@@ -108,16 +108,6 @@ class GridLabelingApp:
             "y": {"ㅛ"},
             "z": {"ㅋ"},
         }
-        self.delete_protected_labels: set[str] = {
-            "병뚜껑",
-            "병마개",
-            "bottlecap",
-            "bottle_cap",
-            "bottle-cap",
-        }
-        self.delete_protected_label_tokens = {
-            self._normalize_label_token(text) for text in self.delete_protected_labels
-        }
 
         self._build_ui()
 
@@ -985,8 +975,9 @@ class GridLabelingApp:
             self.root.after_cancel(self.quick_input_after_id)
             self.quick_input_after_id = None
 
-        self.quick_input_buffer += char
-        value = int(self.quick_input_buffer)
+        # Treat quick numeric input as single-digit overwrite.
+        self.quick_input_buffer = char
+        value = int(char)
         target = self.quick_assign_target_var.get()
         if self.selected_ids:
             self._apply_quick_assign_value(target, value)
@@ -1493,9 +1484,8 @@ class GridLabelingApp:
         return lowered.replace(" ", "").replace("_", "").replace("-", "")
 
     def _is_delete_protected_object(self, obj: GridObject) -> bool:
-        if not obj.label:
-            return False
-        return self._normalize_label_token(obj.label) in self.delete_protected_label_tokens
+        # Only `empty_slot` labels can be deleted.
+        return self._normalize_label_token(obj.label) != "emptyslot"
 
     def _set_editor_values(self, col_text: str, row_text: str) -> None:
         self.live_apply_suspended = True
