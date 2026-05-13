@@ -52,6 +52,9 @@ class GridLabelingApp:
         self.next_manual_id = 0
         self.drag_anchor: tuple[float, float] | None = None
         self.drag_rect_id: int | None = None
+        self.drag_lasso_id: int | None = None
+        self.drag_lasso_close_id: int | None = None
+        self.drag_lasso_points: list[tuple[float, float]] = []
         self.drag_additive: bool = False
         self.point_drag_ids: set[str] | None = None
         self.point_drag_offsets: dict[str, tuple[float, float]] | None = None
@@ -59,6 +62,7 @@ class GridLabelingApp:
         self.pan_anchor_offset: tuple[float, float] | None = None
 
         self.mode_var = tk.StringVar(value="select")
+        self.drag_select_mode_var = tk.StringVar(value="bbox")
         self.col_var = tk.StringVar(value="")
         self.row_var = tk.StringVar(value="")
         self.status_var = tk.StringVar(value="폴더를 선택하세요.")
@@ -69,6 +73,7 @@ class GridLabelingApp:
         self.total_points_var = tk.StringVar(value="전체 점 수: 0")
         self.missing_col_var = tk.StringVar(value="col 미지정 점 수: 0")
         self.missing_row_var = tk.StringVar(value="row 미지정 점 수: 0")
+        self.focus_info_var = tk.StringVar(value="focus: -")
         self.copied_objects: list[GridObject] = []
         self.paste_serial = 0
         self.paste_offset_px = (12.0, 12.0)
@@ -102,6 +107,16 @@ class GridLabelingApp:
             "v": {"ㅍ"},
             "y": {"ㅛ"},
             "z": {"ㅋ"},
+        }
+        self.delete_protected_labels: set[str] = {
+            "병뚜껑",
+            "병마개",
+            "bottlecap",
+            "bottle_cap",
+            "bottle-cap",
+        }
+        self.delete_protected_label_tokens = {
+            self._normalize_label_token(text) for text in self.delete_protected_labels
         }
 
         self._build_ui()
@@ -155,94 +170,10 @@ class GridLabelingApp:
         self.canvas.bind("<Motion>", self._on_canvas_motion)
         self.canvas.bind("<MouseWheel>", self._on_mouse_wheel)
         self.canvas.bind("<Configure>", lambda _e: self._draw_scene())
-        self.root.bind_all("<Control-z>", self._on_undo_shortcut)
-        self.root.bind_all("<Control-Z>", self._on_undo_shortcut)
-        self.root.bind_all("<Control-KeyPress-z>", self._on_undo_shortcut)
-        self.root.bind_all("<Control-KeyPress-Z>", self._on_undo_shortcut)
-        self.root.bind_all("<Control-y>", self._on_redo_shortcut)
-        self.root.bind_all("<Control-Y>", self._on_redo_shortcut)
-        self.root.bind_all("<Control-KeyPress-y>", self._on_redo_shortcut)
-        self.root.bind_all("<Control-KeyPress-Y>", self._on_redo_shortcut)
-        self.root.bind_all("<Control-c>", self._on_copy_shortcut)
-        self.root.bind_all("<Control-C>", self._on_copy_shortcut)
-        self.root.bind_all("<Control-v>", self._on_paste_shortcut)
-        self.root.bind_all("<Control-V>", self._on_paste_shortcut)
-        self.root.bind_all("<Control-s>", self._on_save_shortcut)
-        self.root.bind_all("<Control-S>", self._on_save_shortcut)
-        self.root.bind_all("<Control-KeyPress>", self._on_control_keypress)
-        self.root.bind_all("<Command-z>", self._on_undo_shortcut)
-        self.root.bind_all("<Command-Z>", self._on_undo_shortcut)
-        self.root.bind_all("<Command-KeyPress-z>", self._on_undo_shortcut)
-        self.root.bind_all("<Command-KeyPress-Z>", self._on_undo_shortcut)
-        self.root.bind_all("<Mod2-z>", self._on_undo_shortcut)
-        self.root.bind_all("<Mod2-Z>", self._on_undo_shortcut)
-        self.root.bind_all("<Mod1-z>", self._on_undo_shortcut)
-        self.root.bind_all("<Mod1-Z>", self._on_undo_shortcut)
-        self.root.bind_all("<Command-y>", self._on_redo_shortcut)
-        self.root.bind_all("<Command-Y>", self._on_redo_shortcut)
-        self.root.bind_all("<Command-KeyPress-y>", self._on_redo_shortcut)
-        self.root.bind_all("<Command-KeyPress-Y>", self._on_redo_shortcut)
-        self.root.bind_all("<Command-Shift-z>", self._on_redo_shortcut)
-        self.root.bind_all("<Command-Shift-Z>", self._on_redo_shortcut)
-        self.root.bind_all("<Command-Shift-KeyPress-z>", self._on_redo_shortcut)
-        self.root.bind_all("<Command-Shift-KeyPress-Z>", self._on_redo_shortcut)
-        self.root.bind_all("<Mod2-y>", self._on_redo_shortcut)
-        self.root.bind_all("<Mod2-Y>", self._on_redo_shortcut)
-        self.root.bind_all("<Mod1-y>", self._on_redo_shortcut)
-        self.root.bind_all("<Mod1-Y>", self._on_redo_shortcut)
-        self.root.bind_all("<Mod2-Shift-z>", self._on_redo_shortcut)
-        self.root.bind_all("<Mod2-Shift-Z>", self._on_redo_shortcut)
-        self.root.bind_all("<Mod1-Shift-z>", self._on_redo_shortcut)
-        self.root.bind_all("<Mod1-Shift-Z>", self._on_redo_shortcut)
-        self.root.bind_all("<Command-c>", self._on_copy_shortcut)
-        self.root.bind_all("<Command-C>", self._on_copy_shortcut)
-        self.root.bind_all("<Command-v>", self._on_paste_shortcut)
-        self.root.bind_all("<Command-V>", self._on_paste_shortcut)
-        self.root.bind_all("<Command-s>", self._on_save_shortcut)
-        self.root.bind_all("<Command-S>", self._on_save_shortcut)
-        self.root.bind_all("<Mod2-c>", self._on_copy_shortcut)
-        self.root.bind_all("<Mod2-C>", self._on_copy_shortcut)
-        self.root.bind_all("<Mod2-v>", self._on_paste_shortcut)
-        self.root.bind_all("<Mod2-V>", self._on_paste_shortcut)
-        self.root.bind_all("<Mod2-s>", self._on_save_shortcut)
-        self.root.bind_all("<Mod2-S>", self._on_save_shortcut)
-        self.root.bind_all("<Mod1-c>", self._on_copy_shortcut)
-        self.root.bind_all("<Mod1-C>", self._on_copy_shortcut)
-        self.root.bind_all("<Mod1-v>", self._on_paste_shortcut)
-        self.root.bind_all("<Mod1-V>", self._on_paste_shortcut)
-        self.root.bind_all("<Mod1-s>", self._on_save_shortcut)
-        self.root.bind_all("<Mod1-S>", self._on_save_shortcut)
-        self.root.bind_all("<<Undo>>", self._on_undo_shortcut)
-        self.root.bind_all("<<Redo>>", self._on_redo_shortcut)
-        self.root.bind_all("<<Copy>>", self._on_copy_shortcut)
-        self.root.bind_all("<<Paste>>", self._on_paste_shortcut)
-        self.root.bind_all("<Command-KeyPress>", self._on_command_keypress)
-        self.root.bind_all("<Mod2-KeyPress>", self._on_command_keypress)
-        self.root.bind_all("<Mod1-KeyPress>", self._on_command_keypress)
-        self.root.bind_all("<Meta-KeyPress>", self._on_command_keypress)
-        self.root.bind_all("<Control-Left>", lambda e: self._on_grid_nudge_shortcut(e, dx=-1, dy=0))
-        self.root.bind_all("<Control-Right>", lambda e: self._on_grid_nudge_shortcut(e, dx=1, dy=0))
-        self.root.bind_all("<Control-Up>", lambda e: self._on_grid_nudge_shortcut(e, dx=0, dy=-1))
-        self.root.bind_all("<Control-Down>", lambda e: self._on_grid_nudge_shortcut(e, dx=0, dy=1))
-        self.root.bind_all("<Command-Left>", lambda e: self._on_grid_nudge_shortcut(e, dx=-1, dy=0))
-        self.root.bind_all("<Command-Right>", lambda e: self._on_grid_nudge_shortcut(e, dx=1, dy=0))
-        self.root.bind_all("<Command-Up>", lambda e: self._on_grid_nudge_shortcut(e, dx=0, dy=-1))
-        self.root.bind_all("<Command-Down>", lambda e: self._on_grid_nudge_shortcut(e, dx=0, dy=1))
-        self.root.bind_all("<Mod2-Left>", lambda e: self._on_grid_nudge_shortcut(e, dx=-1, dy=0))
-        self.root.bind_all("<Mod2-Right>", lambda e: self._on_grid_nudge_shortcut(e, dx=1, dy=0))
-        self.root.bind_all("<Mod2-Up>", lambda e: self._on_grid_nudge_shortcut(e, dx=0, dy=-1))
-        self.root.bind_all("<Mod2-Down>", lambda e: self._on_grid_nudge_shortcut(e, dx=0, dy=1))
-        self.root.bind_all("<Mod1-Left>", lambda e: self._on_grid_nudge_shortcut(e, dx=-1, dy=0))
-        self.root.bind_all("<Mod1-Right>", lambda e: self._on_grid_nudge_shortcut(e, dx=1, dy=0))
-        self.root.bind_all("<Mod1-Up>", lambda e: self._on_grid_nudge_shortcut(e, dx=0, dy=-1))
-        self.root.bind_all("<Mod1-Down>", lambda e: self._on_grid_nudge_shortcut(e, dx=0, dy=1))
-        self.root.bind_all("<<Clear>>", self._on_delete_selected)
-        self.root.bind_all("<Left>", lambda e: self._on_nudge_key(e, dx=-1, dy=0))
-        self.root.bind_all("<Right>", lambda e: self._on_nudge_key(e, dx=1, dy=0))
-        self.root.bind_all("<Up>", lambda e: self._on_nudge_key(e, dx=0, dy=-1))
-        self.root.bind_all("<Down>", lambda e: self._on_nudge_key(e, dx=0, dy=1))
-        self.root.bind_all("<Delete>", self._on_delete_selected)
-        self.root.bind_all("<KeyPress>", self._on_global_keypress)
+        # Route all keyboard shortcuts from one consistent entrypoint.
+        self.root.bind("<KeyPress>", self._on_global_keypress, add="+")
+        self.root.bind_all("<FocusIn>", self._on_focus_changed)
+        self.root.bind_all("<FocusOut>", self._on_focus_changed)
 
         right = ttk.Frame(root, padding=8)
         right.grid(row=0, column=2, sticky="nse")
@@ -282,24 +213,39 @@ class GridLabelingApp:
 
         option_frame = ttk.LabelFrame(right, text="옵션", padding=(8, 6))
         option_frame.grid(row=5, column=0, sticky="ew", pady=(10, 0))
+        ttk.Label(option_frame, text="드래그 선택 방식").grid(row=0, column=0, sticky="w")
+        drag_mode_row = ttk.Frame(option_frame)
+        drag_mode_row.grid(row=1, column=0, sticky="w", pady=(2, 4))
+        ttk.Radiobutton(
+            drag_mode_row,
+            text="bbox",
+            value="bbox",
+            variable=self.drag_select_mode_var,
+        ).pack(side=tk.LEFT)
+        ttk.Radiobutton(
+            drag_mode_row,
+            text="올가미",
+            value="lasso",
+            variable=self.drag_select_mode_var,
+        ).pack(side=tk.LEFT, padx=(8, 0))
         ttk.Checkbutton(
             option_frame,
             text="col,row 보기",
             variable=self.show_col_row_var,
             command=self._draw_scene,
-        ).grid(row=0, column=0, sticky="w")
+        ).grid(row=2, column=0, sticky="w")
         ttk.Checkbutton(
             option_frame,
             text="show_grid",
             variable=self.show_grid_var,
             command=self._draw_scene,
-        ).grid(row=1, column=0, sticky="w")
+        ).grid(row=3, column=0, sticky="w")
         ttk.Checkbutton(
             option_frame,
             text="polygon-point 연결 표시",
             variable=self.show_grid_mixed_links_var,
             command=self._draw_scene,
-        ).grid(row=2, column=0, sticky="w")
+        ).grid(row=4, column=0, sticky="w")
 
         stats_frame = ttk.LabelFrame(right, text="통계", padding=(8, 6))
         stats_frame.grid(row=6, column=0, sticky="ew", pady=(10, 0))
@@ -322,20 +268,25 @@ class GridLabelingApp:
         self.col_var.trace_add("write", self._on_live_edit_changed)
         self.row_var.trace_add("write", self._on_live_edit_changed)
 
-        status = ttk.Label(root, textvariable=self.status_var, anchor="w", padding=(8, 4))
-        status.grid(row=1, column=0, columnspan=3, sticky="ew")
+        status_row = ttk.Frame(root, padding=(8, 4))
+        status_row.grid(row=1, column=0, columnspan=3, sticky="ew")
+        status_row.columnconfigure(0, weight=1)
+        ttk.Label(status_row, textvariable=self.status_var, anchor="w").grid(row=0, column=0, sticky="ew")
+        ttk.Label(status_row, textvariable=self.focus_info_var, anchor="e").grid(row=0, column=1, sticky="e")
 
-        # On macOS, default widget/menu class bindings can consume Command shortcuts
-        # before app-level handlers. Promote the toplevel bindtag ahead of class tags.
-        if sys.platform == "darwin":
-            self._promote_root_bindtag(self.root)
+        # Promote the toplevel bindtag ahead of class tags so app shortcuts can run
+        # before widget class bindings consume the event.
+        self._promote_root_bindtag(self.root)
+        self.root.after_idle(self._update_focus_info)
 
     def _promote_root_bindtag(self, widget: tk.Misc) -> None:
         root_tag = str(self.root)
         tags = list(widget.bindtags())
-        if root_tag in tags and len(tags) >= 2:
+        if root_tag in tags:
             tags = [tag for tag in tags if tag != root_tag]
-            tags.insert(1, root_tag)
+            # Put toplevel tag first so app shortcuts are not blocked by
+            # widget-specific bindings returning "break".
+            tags.insert(0, root_tag)
             widget.bindtags(tuple(tags))
         for child in widget.winfo_children():
             self._promote_root_bindtag(child)
@@ -422,6 +373,8 @@ class GridLabelingApp:
         target_index = int(selection[0])
         if target_index != self.current_index:
             self.load_index(target_index)
+        self.canvas.focus_set()
+        self._update_focus_info()
 
     def _on_listbox_arrow(self, event: tk.Event, dx: int, dy: int) -> str:
         self._on_nudge_key(event, dx=dx, dy=dy)
@@ -563,6 +516,8 @@ class GridLabelingApp:
     def _on_canvas_press(self, event: tk.Event) -> None:
         if not self.current_state:
             return
+        self.canvas.focus_set()
+        self._update_focus_info()
         mode = self.mode_var.get()
         ctrl_pressed = bool(event.state & 0x0004)
         shift_pressed = bool(event.state & 0x0001)
@@ -640,7 +595,12 @@ class GridLabelingApp:
             self._request_redraw()
             return
 
-        if self.drag_anchor is None or self.drag_rect_id is None:
+        if self.drag_anchor is None:
+            return
+        if self.drag_select_mode_var.get() == "lasso":
+            self._update_lasso_drag(event.x, event.y)
+            return
+        if self.drag_rect_id is None:
             return
         x0, y0 = self.drag_anchor
         self.canvas.coords(self.drag_rect_id, x0, y0, event.x, event.y)
@@ -666,29 +626,14 @@ class GridLabelingApp:
         x1, y1 = event.x, event.y
         self.drag_anchor = None
 
-        if self.drag_rect_id is not None:
-            self.canvas.delete(self.drag_rect_id)
-            self.drag_rect_id = None
-
-        ix0, iy0 = self._to_image(x0, y0)
-        ix1, iy1 = self._to_image(x1, y1)
-        if ix0 is None or iy0 is None or ix1 is None or iy1 is None or not self.current_state:
+        if not self.current_state:
             return
 
-        min_x, max_x = sorted((ix0, ix1))
-        min_y, max_y = sorted((iy0, iy1))
-        x_span = abs(x1 - x0)
-        y_span = abs(y1 - y0)
-
-        if x_span < 4 and y_span < 4:
-            picked = self._find_nearest_object(ix1, iy1)
-            selected = set() if picked is None else {picked.object_id}
+        if self.drag_select_mode_var.get() == "lasso":
+            selected = self._finalize_lasso_selection(x1, y1)
         else:
-            selected = {
-                obj.object_id
-                for obj in self.current_state.objects
-                if min_x <= obj.px <= max_x and min_y <= obj.py <= max_y
-            }
+            selected = self._finalize_bbox_selection(x0, y0, x1, y1)
+
         if self.drag_additive:
             self.selected_ids |= selected
         else:
@@ -697,6 +642,59 @@ class GridLabelingApp:
         self._sync_editor_with_selection()
         self._draw_scene()
         self.status_var.set(f"총 {len(self.selected_ids)}개 객체 선택됨")
+
+    def _finalize_bbox_selection(self, x0: float, y0: float, x1: float, y1: float) -> set[str]:
+        if self.drag_rect_id is not None:
+            self.canvas.delete(self.drag_rect_id)
+            self.drag_rect_id = None
+
+        ix0, iy0 = self._to_image(x0, y0)
+        ix1, iy1 = self._to_image(x1, y1)
+        if ix0 is None or iy0 is None or ix1 is None or iy1 is None or not self.current_state:
+            return set()
+
+        min_x, max_x = sorted((ix0, ix1))
+        min_y, max_y = sorted((iy0, iy1))
+        x_span = abs(x1 - x0)
+        y_span = abs(y1 - y0)
+        if x_span < 4 and y_span < 4:
+            picked = self._find_nearest_object(ix1, iy1)
+            return set() if picked is None else {picked.object_id}
+        return {
+            obj.object_id
+            for obj in self.current_state.objects
+            if min_x <= obj.px <= max_x and min_y <= obj.py <= max_y
+        }
+
+    def _finalize_lasso_selection(self, x1: float, y1: float) -> set[str]:
+        if not self.current_state:
+            return set()
+        self._update_lasso_drag(x1, y1)
+        points = list(self.drag_lasso_points)
+        self._clear_lasso_overlay()
+
+        if len(points) < 3:
+            ix, iy = self._to_image(x1, y1)
+            if ix is None or iy is None:
+                return set()
+            picked = self._find_nearest_object(ix, iy)
+            return set() if picked is None else {picked.object_id}
+
+        xs = [pt[0] for pt in points]
+        ys = [pt[1] for pt in points]
+        if (max(xs) - min(xs)) < 4 and (max(ys) - min(ys)) < 4:
+            ix, iy = self._to_image(x1, y1)
+            if ix is None or iy is None:
+                return set()
+            picked = self._find_nearest_object(ix, iy)
+            return set() if picked is None else {picked.object_id}
+
+        selected: set[str] = set()
+        for obj in self.current_state.objects:
+            cx, cy = self._to_canvas(obj.px, obj.py)
+            if self._point_in_polygon(cx, cy, points):
+                selected.add(obj.object_id)
+        return selected
 
     def _on_canvas_motion(self, event: tk.Event) -> None:
         x_img, y_img = self._to_image(event.x, event.y)
@@ -766,39 +764,44 @@ class GridLabelingApp:
             return True
         return event.keycode in self.shortcut_keycodes.get(key_lower, set())
 
-    def _on_control_keypress(self, event: tk.Event) -> str | None:
-        if self._event_matches_shortcut(event, "z"):
-            return self._on_undo_shortcut(event)
-        if self._event_matches_shortcut(event, "y"):
-            return self._on_redo_shortcut(event)
-        if self._event_matches_shortcut(event, "c"):
-            return self._on_copy_shortcut(event)
-        if self._event_matches_shortcut(event, "v"):
-            return self._on_paste_shortcut(event)
-        if self._event_matches_shortcut(event, "s"):
-            return self._on_save_shortcut(event)
-        return None
-
-    def _on_command_keypress(self, event: tk.Event) -> str | None:
-        if self._event_matches_shortcut(event, "z"):
-            return self._on_undo_shortcut(event)
-        if self._event_matches_shortcut(event, "y"):
-            return self._on_redo_shortcut(event)
-        if self._event_matches_shortcut(event, "c"):
-            return self._on_copy_shortcut(event)
-        if self._event_matches_shortcut(event, "v"):
-            return self._on_paste_shortcut(event)
-        if self._event_matches_shortcut(event, "s"):
-            return self._on_save_shortcut(event)
-        return None
-
     def _on_global_keypress(self, event: tk.Event) -> str | None:
-        if event.state & 0x0004:
-            return None
-        focus_widget = self.root.focus_get()
-        if focus_widget is not None and str(focus_widget.winfo_class()) in {"Entry", "TEntry"}:
+        self._update_focus_info()
+        keysym = (event.keysym or "").lower()
+
+        if self._is_shortcut_modifier_pressed(event):
+            if self._event_matches_shortcut(event, "z"):
+                return self._on_undo_shortcut(event)
+            if self._event_matches_shortcut(event, "y"):
+                return self._on_redo_shortcut(event)
+            if self._event_matches_shortcut(event, "c"):
+                return self._on_copy_shortcut(event)
+            if self._event_matches_shortcut(event, "v"):
+                return self._on_paste_shortcut(event)
+            if self._event_matches_shortcut(event, "s"):
+                return self._on_save_shortcut(event)
+            if keysym == "left":
+                return self._on_grid_nudge_shortcut(event, dx=-1, dy=0)
+            if keysym == "right":
+                return self._on_grid_nudge_shortcut(event, dx=1, dy=0)
+            if keysym == "up":
+                return self._on_grid_nudge_shortcut(event, dx=0, dy=-1)
+            if keysym == "down":
+                return self._on_grid_nudge_shortcut(event, dx=0, dy=1)
             return None
 
+        # Unmodified key handling.
+        if keysym == "left":
+            return self._on_nudge_key(event, dx=-1, dy=0)
+        if keysym == "right":
+            return self._on_nudge_key(event, dx=1, dy=0)
+        if keysym == "up":
+            return self._on_nudge_key(event, dx=0, dy=-1)
+        if keysym == "down":
+            return self._on_nudge_key(event, dx=0, dy=1)
+        if keysym in {"delete", "backspace"}:
+            return self._on_delete_selected(event)
+
+        # Mode/navigation shortcuts should work regardless of current focus.
         if self._event_matches_shortcut(event, "r"):
             return self._on_shortcut_add_mode(event)
         if self._event_matches_shortcut(event, "e"):
@@ -810,6 +813,9 @@ class GridLabelingApp:
         if self._event_matches_shortcut(event, "d"):
             return self._on_next_image_shortcut(event)
 
+        # Numeric quick-assign/select should not interfere while typing in inputs.
+        if self._is_text_input_focused():
+            return None
         return self._on_quick_numeric_input(event)
 
     def _on_grid_nudge_shortcut(self, event: tk.Event, dx: int, dy: int) -> str | None:
@@ -824,9 +830,6 @@ class GridLabelingApp:
         return "break"
 
     def _on_shortcut_fit_view(self, _event: tk.Event) -> str | None:
-        focus_widget = self.root.focus_get()
-        if focus_widget is not None and str(focus_widget.winfo_class()) in {"Entry", "TEntry"}:
-            return None
         self.zoom_factor = 1.0
         self.pan_x = 0.0
         self.pan_y = 0.0
@@ -835,16 +838,10 @@ class GridLabelingApp:
         return "break"
 
     def _on_prev_image_shortcut(self, _event: tk.Event) -> str | None:
-        focus_widget = self.root.focus_get()
-        if focus_widget is not None and str(focus_widget.winfo_class()) in {"Entry", "TEntry"}:
-            return None
         self.prev_image()
         return "break"
 
     def _on_next_image_shortcut(self, _event: tk.Event) -> str | None:
-        focus_widget = self.root.focus_get()
-        if focus_widget is not None and str(focus_widget.winfo_class()) in {"Entry", "TEntry"}:
-            return None
         self.next_image()
         return "break"
 
@@ -855,33 +852,50 @@ class GridLabelingApp:
     def _on_delete_selected(self, _event: tk.Event) -> str | None:
         if not self.current_state or not self.selected_ids:
             return None
-        focus_widget = self.root.focus_get()
-        if focus_widget is not None and str(focus_widget.winfo_class()) in {"Entry", "TEntry"}:
+        if self._is_text_input_focused():
             return None
 
-        before_count = len(self.current_state.objects)
-        self._push_undo_state()
-        self.current_state.objects = [
-            obj for obj in self.current_state.objects if obj.object_id not in self.selected_ids
-        ]
-        removed = before_count - len(self.current_state.objects)
+        selected_ids = set(self.selected_ids)
+        kept_objects: list[GridObject] = []
+        kept_selected_ids: set[str] = set()
+        removed = 0
+        protected = 0
+        for obj in self.current_state.objects:
+            if obj.object_id not in selected_ids:
+                kept_objects.append(obj)
+                continue
+            if self._is_delete_protected_object(obj):
+                kept_objects.append(obj)
+                kept_selected_ids.add(obj.object_id)
+                protected += 1
+                continue
+            removed += 1
+
         if removed <= 0:
+            if protected > 0:
+                self.selected_ids = kept_selected_ids
+                self._sync_editor_with_selection()
+                self.status_var.set("병뚜껑 객체는 Delete로 삭제할 수 없습니다.")
             return "break"
 
+        self._push_undo_state()
+        self.current_state.objects = kept_objects
         self.current_state.dirty = True
-        self.selected_ids.clear()
-        self._set_editor_values("", "")
+        self.selected_ids = kept_selected_ids
+        self._sync_editor_with_selection()
         self._clear_quick_input_buffer()
         self.next_manual_id = self._compute_next_manual_id()
         self._draw_scene()
-        self.status_var.set(f"{removed}개 객체 삭제됨")
+        if protected > 0:
+            self.status_var.set(f"{removed}개 객체 삭제됨 (병뚜껑 {protected}개 보호)")
+        else:
+            self.status_var.set(f"{removed}개 객체 삭제됨")
         return "break"
 
     def _on_copy_shortcut(self, _event: tk.Event) -> str | None:
         if not self.current_state or not self.selected_ids:
             return None
-        focus_widget = self.root.focus_get()
-        if focus_widget is not None and str(focus_widget.winfo_class()) in {"Entry", "TEntry"}:
+        if self._is_text_input_focused():
             return None
 
         selected_objects = [
@@ -902,8 +916,7 @@ class GridLabelingApp:
     def _on_paste_shortcut(self, _event: tk.Event) -> str | None:
         if not self.current_state:
             return None
-        focus_widget = self.root.focus_get()
-        if focus_widget is not None and str(focus_widget.winfo_class()) in {"Entry", "TEntry"}:
+        if self._is_text_input_focused():
             return None
         if not self.copied_objects:
             messagebox.showinfo("붙여넣기 불가", "먼저 Ctrl+C로 복사하세요.")
@@ -961,8 +974,7 @@ class GridLabelingApp:
         if event.state & 0x0004:
             return None
 
-        focus_widget = self.root.focus_get()
-        if focus_widget is not None and str(focus_widget.winfo_class()) in {"Entry", "TEntry"}:
+        if self._is_text_input_focused():
             return None
 
         char = event.char or ""
@@ -1036,8 +1048,7 @@ class GridLabelingApp:
         if not self.current_state or not self.selected_ids:
             return None
 
-        focus_widget = self.root.focus_get()
-        if focus_widget is not None and str(focus_widget.winfo_class()) in {"Entry", "TEntry"}:
+        if self._is_text_input_focused():
             return None
 
         ctrl_pressed = force_grid_edit or bool(_event.state & 0x0004)
@@ -1155,9 +1166,64 @@ class GridLabelingApp:
     def _start_drag_box(self, x: float, y: float, additive: bool) -> None:
         self.drag_anchor = (x, y)
         self.drag_additive = additive
+        if self.drag_select_mode_var.get() == "lasso":
+            self._clear_lasso_overlay()
+            if self.drag_rect_id is not None:
+                self.canvas.delete(self.drag_rect_id)
+                self.drag_rect_id = None
+            self.drag_lasso_points = [(x, y)]
+            self.drag_lasso_id = self.canvas.create_line(
+                x, y, x, y, fill="#00d1ff", width=1, smooth=False
+            )
+            self.drag_lasso_close_id = self.canvas.create_line(
+                x, y, x, y, fill="#00d1ff", width=1, dash=(3, 2)
+            )
+            return
+
         if self.drag_rect_id:
             self.canvas.delete(self.drag_rect_id)
         self.drag_rect_id = self.canvas.create_rectangle(x, y, x, y, outline="#00d1ff", dash=(4, 2))
+        self._clear_lasso_overlay()
+
+    def _update_lasso_drag(self, x: float, y: float) -> None:
+        if not self.drag_lasso_points:
+            self.drag_lasso_points = [(x, y)]
+        last_x, last_y = self.drag_lasso_points[-1]
+        if abs(last_x - x) + abs(last_y - y) >= 2:
+            self.drag_lasso_points.append((x, y))
+
+        if self.drag_lasso_id is not None:
+            flat_points = [coord for pt in self.drag_lasso_points for coord in pt]
+            self.canvas.coords(self.drag_lasso_id, *flat_points)
+        if self.drag_lasso_close_id is not None and self.drag_lasso_points:
+            start_x, start_y = self.drag_lasso_points[0]
+            self.canvas.coords(self.drag_lasso_close_id, start_x, start_y, x, y)
+
+    def _clear_lasso_overlay(self) -> None:
+        if self.drag_lasso_id is not None:
+            self.canvas.delete(self.drag_lasso_id)
+            self.drag_lasso_id = None
+        if self.drag_lasso_close_id is not None:
+            self.canvas.delete(self.drag_lasso_close_id)
+            self.drag_lasso_close_id = None
+        self.drag_lasso_points = []
+
+    def _point_in_polygon(self, x: float, y: float, polygon: list[tuple[float, float]]) -> bool:
+        inside = False
+        n = len(polygon)
+        if n < 3:
+            return False
+        j = n - 1
+        for i in range(n):
+            xi, yi = polygon[i]
+            xj, yj = polygon[j]
+            intersects = ((yi > y) != (yj > y)) and (
+                x < ((xj - xi) * (y - yi) / ((yj - yi) or 1e-9) + xi)
+            )
+            if intersects:
+                inside = not inside
+            j = i
+        return inside
 
     def _start_pan(self, x: float, y: float) -> None:
         self.pan_anchor = (x, y)
@@ -1394,6 +1460,42 @@ class GridLabelingApp:
     def _set_mode(self, mode: str, status: str) -> None:
         self.mode_var.set(mode)
         self.status_var.set(status)
+
+    def _on_focus_changed(self, _event: tk.Event) -> None:
+        self.root.after_idle(self._update_focus_info)
+
+    def _update_focus_info(self) -> None:
+        focus_widget = self.root.focus_get()
+        if focus_widget is None:
+            self.focus_info_var.set("focus: none")
+            return
+        widget_name = str(focus_widget)
+        widget_class = str(focus_widget.winfo_class())
+        self.focus_info_var.set(f"focus: {widget_class} ({widget_name})")
+
+    def _is_text_input_focused(self) -> bool:
+        focus_widget = self.root.focus_get()
+        if focus_widget is None:
+            return False
+        focus_class = str(focus_widget.winfo_class())
+        return focus_class in {"Entry", "TEntry", "Text", "Spinbox", "TCombobox"}
+
+    def _is_shortcut_modifier_pressed(self, event: tk.Event) -> bool:
+        # Tk state bits: Control=0x0004, Mod1=0x0008, Mod2=0x0010.
+        # On Windows/Linux we treat only Control as app-shortcut modifier.
+        # On macOS, Command is usually Mod2 (and can map via Mod1 in some setups).
+        if sys.platform == "darwin":
+            return bool(event.state & (0x0004 | 0x0008 | 0x0010))
+        return bool(event.state & 0x0004)
+
+    def _normalize_label_token(self, label: str) -> str:
+        lowered = (label or "").strip().lower()
+        return lowered.replace(" ", "").replace("_", "").replace("-", "")
+
+    def _is_delete_protected_object(self, obj: GridObject) -> bool:
+        if not obj.label:
+            return False
+        return self._normalize_label_token(obj.label) in self.delete_protected_label_tokens
 
     def _set_editor_values(self, col_text: str, row_text: str) -> None:
         self.live_apply_suspended = True
