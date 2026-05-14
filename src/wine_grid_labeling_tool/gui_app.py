@@ -128,8 +128,17 @@ class GridLabelingApp:
         ttk.Button(nav, text="이전", command=self.prev_image).grid(row=0, column=0, sticky="ew", padx=(0, 4))
         ttk.Button(nav, text="다음", command=self.next_image).grid(row=0, column=1, sticky="ew")
 
-        self.image_listbox = tk.Listbox(left, width=32)
-        self.image_listbox.grid(row=2, column=0, sticky="nsew")
+        list_container = ttk.Frame(left)
+        list_container.grid(row=2, column=0, sticky="nsew")
+        list_container.rowconfigure(0, weight=1)
+        list_container.columnconfigure(0, weight=1)
+        self.image_listbox = tk.Listbox(list_container, width=32)
+        self.image_listbox.grid(row=0, column=0, sticky="nsew")
+        self.image_scrollbar = ttk.Scrollbar(
+            list_container, orient="vertical", command=self.image_listbox.yview
+        )
+        self.image_scrollbar.grid(row=0, column=1, sticky="ns")
+        self.image_listbox.configure(yscrollcommand=self.image_scrollbar.set)
         self.image_listbox.bind("<<ListboxSelect>>", self._on_image_selected)
         self.image_listbox.bind("<Up>", lambda e: self._on_listbox_arrow(e, dx=0, dy=-1))
         self.image_listbox.bind("<Down>", lambda e: self._on_listbox_arrow(e, dx=0, dy=1))
@@ -293,7 +302,7 @@ class GridLabelingApp:
         self.folder_path = folder_path
         self.image_paths = list_images(folder_path)
         self.edited_images = {p for p in self.image_paths if sidecar_path_for(p).exists()}
-        self._refresh_image_list()
+        self._refresh_image_list(preserve_scroll=False)
 
         if not self.image_paths:
             self.current_index = -1
@@ -304,6 +313,7 @@ class GridLabelingApp:
             return
 
         self.load_index(0)
+        self._restore_keyboard_focus()
 
     def load_index(self, index: int) -> None:
         if index < 0 or index >= len(self.image_paths):
@@ -324,13 +334,15 @@ class GridLabelingApp:
         self.selected_ids.clear()
         self.next_manual_id = self._compute_next_manual_id()
 
-        self._refresh_image_list()
+        self._refresh_image_list(preserve_scroll=True)
         self.image_listbox.selection_clear(0, tk.END)
         self.image_listbox.selection_set(index)
         self.image_listbox.activate(index)
+        self.image_listbox.see(index)
 
         self._draw_scene()
         self.status_var.set(f"{image_path.name} 로드 완료 ({len(self.current_state.objects)} objects)")
+        self._restore_keyboard_focus()
 
     def prev_image(self) -> None:
         if self.current_index <= 0:
@@ -347,14 +359,14 @@ class GridLabelingApp:
             return
         save_image_state(self.current_state)
         self.edited_images.add(self.current_state.image_path)
-        self._refresh_image_list()
+        self._refresh_image_list(preserve_scroll=True)
         self.status_var.set(f"저장됨: {self.current_state.image_path.name}")
 
     def _autosave_if_needed(self) -> None:
         if self.current_state and self.current_state.dirty:
             save_image_state(self.current_state)
             self.edited_images.add(self.current_state.image_path)
-            self._refresh_image_list()
+            self._refresh_image_list(preserve_scroll=True)
 
     def _on_image_selected(self, _event: tk.Event) -> None:
         selection = self.image_listbox.curselection()
@@ -512,11 +524,17 @@ class GridLabelingApp:
         ctrl_pressed = bool(event.state & 0x0004)
         shift_pressed = bool(event.state & 0x0001)
         x_img, y_img = self._to_image(event.x, event.y)
-        if x_img is None:
-            return
 
         if ctrl_pressed:
             self._start_pan(event.x, event.y)
+            return
+
+        if mode == "select" and x_img is None:
+            if not shift_pressed:
+                self._clear_selection("선택 해제")
+            return
+
+        if x_img is None:
             return
 
         if mode == "add":
@@ -525,8 +543,18 @@ class GridLabelingApp:
             return
 
         if mode == "select":
+            hovered = self._find_nearest_object(x_img, y_img)
+            if shift_pressed and hovered is not None:
+                if hovered.object_id in self.selected_ids:
+                    self.selected_ids.remove(hovered.object_id)
+                else:
+                    self.selected_ids.add(hovered.object_id)
+                self._sync_editor_with_selection()
+                self._draw_scene()
+                self.status_var.set(f"총 {len(self.selected_ids)}개 객체 선택됨")
+                return
+
             if not shift_pressed:
-                hovered = self._find_nearest_object(x_img, y_img)
                 if hovered is not None and self._is_position_editable(hovered):
                     if hovered.object_id in self.selected_ids:
                         drag_ids = {
@@ -1184,7 +1212,11 @@ class GridLabelingApp:
             self.drag_lasso_points.append((x, y))
 
         if self.drag_lasso_id is not None:
-            flat_points = [coord for pt in self.drag_lasso_points for coord in pt]
+            render_points = list(self.drag_lasso_points)
+            # Canvas line needs at least two points (4 coordinates).
+            if len(render_points) == 1:
+                render_points.append((x, y))
+            flat_points = [coord for pt in render_points for coord in pt]
             self.canvas.coords(self.drag_lasso_id, *flat_points)
         if self.drag_lasso_close_id is not None and self.drag_lasso_points:
             start_x, start_y = self.drag_lasso_points[0]
@@ -1452,6 +1484,13 @@ class GridLabelingApp:
         self.mode_var.set(mode)
         self.status_var.set(status)
 
+    def _clear_selection(self, status_message: str | None = None) -> None:
+        self.selected_ids.clear()
+        self._sync_editor_with_selection()
+        self._draw_scene()
+        if status_message is not None:
+            self.status_var.set(status_message)
+
     def _on_focus_changed(self, _event: tk.Event) -> None:
         self.root.after_idle(self._update_focus_info)
 
@@ -1607,11 +1646,18 @@ class GridLabelingApp:
         self.redraw_after_id = None
         self._draw_scene()
 
-    def _refresh_image_list(self) -> None:
+    def _refresh_image_list(self, preserve_scroll: bool = True) -> None:
+        yview = self.image_listbox.yview() if preserve_scroll else None
         self.image_listbox.delete(0, tk.END)
         for idx, path in enumerate(self.image_paths):
             edited = path in self.edited_images
             prefix = "✓ " if edited else ""
-            self.image_listbox.insert(tk.END, f"{prefix}{path.name}")
+            self.image_listbox.insert(tk.END, f"{prefix}[{idx}] {path.name}")
             if edited:
                 self.image_listbox.itemconfig(idx, foreground="#22aa22")
+        if yview and len(yview) == 2:
+            self.image_listbox.yview_moveto(yview[0])
+
+    def _restore_keyboard_focus(self) -> None:
+        self.root.after_idle(self.root.focus_set)
+        self.root.after_idle(self.canvas.focus_set)
