@@ -6,7 +6,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from PIL import Image, ImageDraw, ImageTk
+from PIL import Image, ImageDraw, ImageEnhance, ImageTk
 
 from .app_config import AppConfig
 from .grid_types import GridObject, ImageLabelState
@@ -41,7 +41,10 @@ class GridLabelingApp:
         self.source_image: Image.Image | None = None
         self.source_image_path: Path | None = None
         self.cached_draw_size: tuple[int, int] | None = None
+        self.cached_resized_image: Image.Image | None = None
+        self.cached_render_brightness: float | None = None
         self.redraw_after_id: str | None = None
+        self.brightness_after_id: str | None = None
         self.nudge_step_px = 1.0
         self.grid_preview_size = (280, 280)
         self.grid_preview_tk: ImageTk.PhotoImage | None = None
@@ -70,6 +73,8 @@ class GridLabelingApp:
         self.show_grid_var = tk.BooleanVar(value=False)
         self.show_grid_mixed_links_var = tk.BooleanVar(value=True)
         self.quick_assign_target_var = tk.StringVar(value="col")
+        self.brightness_var = tk.DoubleVar(value=1.0)
+        self.brightness_text_var = tk.StringVar(value="1.00")
         self.total_points_var = tk.StringVar(value="전체 점 수: 0")
         self.missing_col_var = tk.StringVar(value="col 미지정 점 수: 0")
         self.missing_row_var = tk.StringVar(value="row 미지정 점 수: 0")
@@ -81,6 +86,7 @@ class GridLabelingApp:
         self.live_apply_after_id: str | None = None
         self.quick_input_buffer = ""
         self.quick_input_after_id: str | None = None
+        self.brightness_factor = 1.0
         # Keycode fallback for shortcuts across different layouts/IME states.
         # Windows VK + macOS ANSI keycodes.
         self.shortcut_keycodes: dict[str, set[int]] = {
@@ -170,7 +176,10 @@ class GridLabelingApp:
         self.canvas.bind("<MouseWheel>", self._on_mouse_wheel)
         self.canvas.bind("<Configure>", lambda _e: self._draw_scene())
         # Route all keyboard shortcuts from one consistent entrypoint.
+        # Keep both root-bindtag and bind_all to avoid platform/widget-specific
+        # event swallowing edge cases.
         self.root.bind("<KeyPress>", self._on_global_keypress, add="+")
+        self.root.bind_all("<KeyPress>", self._on_global_keypress, add="+")
         self.root.bind_all("<FocusIn>", self._on_focus_changed)
         self.root.bind_all("<FocusOut>", self._on_focus_changed)
 
@@ -246,14 +255,31 @@ class GridLabelingApp:
             command=self._draw_scene,
         ).grid(row=4, column=0, sticky="w")
 
+        brightness_frame = ttk.LabelFrame(right, text="밝기", padding=(8, 6))
+        brightness_frame.grid(row=6, column=0, sticky="ew", pady=(10, 0))
+        brightness_frame.columnconfigure(0, weight=1)
+        self.brightness_scale = ttk.Scale(
+            brightness_frame,
+            from_=0.2,
+            to=3.0,
+            orient="horizontal",
+            variable=self.brightness_var,
+            command=self._on_brightness_slider,
+        )
+        self.brightness_scale.grid(row=0, column=0, sticky="ew")
+        brightness_entry = ttk.Entry(brightness_frame, textvariable=self.brightness_text_var, width=8)
+        brightness_entry.grid(row=0, column=1, sticky="e", padx=(6, 0))
+        brightness_entry.bind("<Return>", self._on_brightness_entry_commit)
+        brightness_entry.bind("<FocusOut>", self._on_brightness_entry_commit)
+
         stats_frame = ttk.LabelFrame(right, text="통계", padding=(8, 6))
-        stats_frame.grid(row=6, column=0, sticky="ew", pady=(10, 0))
+        stats_frame.grid(row=7, column=0, sticky="ew", pady=(10, 0))
         ttk.Label(stats_frame, textvariable=self.total_points_var).grid(row=0, column=0, sticky="w")
         ttk.Label(stats_frame, textvariable=self.missing_col_var).grid(row=1, column=0, sticky="w")
         ttk.Label(stats_frame, textvariable=self.missing_row_var).grid(row=2, column=0, sticky="w")
 
         preview_frame = ttk.LabelFrame(right, text="Grid Preview", padding=(8, 6))
-        preview_frame.grid(row=7, column=0, sticky="ew", pady=(10, 0))
+        preview_frame.grid(row=8, column=0, sticky="ew", pady=(10, 0))
         self.grid_preview_canvas = tk.Canvas(
             preview_frame,
             width=self.grid_preview_size[0],
@@ -326,6 +352,8 @@ class GridLabelingApp:
         self.source_image = None
         self.source_image_path = None
         self.cached_draw_size = None
+        self.cached_resized_image = None
+        self.cached_render_brightness = None
         self.zoom_factor = 1.0
         self.pan_x = 0.0
         self.pan_y = 0.0
@@ -418,10 +446,18 @@ class GridLabelingApp:
         self.pan_x = self.offset_x - self.base_offset_x
         self.pan_y = self.offset_y - self.base_offset_y
 
-        if self.cached_draw_size != (draw_w, draw_h) or self.image_tk is None:
-            resized = image.resize((draw_w, draw_h), Image.Resampling.BILINEAR)
-            self.image_tk = ImageTk.PhotoImage(resized)
+        need_resized_base = self.cached_draw_size != (draw_w, draw_h) or self.cached_resized_image is None
+        if need_resized_base:
+            self.cached_resized_image = image.resize((draw_w, draw_h), Image.Resampling.BILINEAR)
             self.cached_draw_size = (draw_w, draw_h)
+
+        if self.image_tk is None or need_resized_base or self.cached_render_brightness != self.brightness_factor:
+            assert self.cached_resized_image is not None
+            render_source = self.cached_resized_image
+            if abs(self.brightness_factor - 1.0) > 1e-6:
+                render_source = ImageEnhance.Brightness(render_source).enhance(self.brightness_factor)
+            self.image_tk = ImageTk.PhotoImage(render_source)
+            self.cached_render_brightness = self.brightness_factor
         self.canvas.create_image(self.offset_x, self.offset_y, image=self.image_tk, anchor=tk.NW)
 
         if self.show_grid_var.get():
@@ -786,17 +822,18 @@ class GridLabelingApp:
         self._update_focus_info()
         keysym = (event.keysym or "").lower()
 
+        if self._is_shortcut_modifier_pressed(event) and self._event_matches_shortcut(event, "z"):
+            return self._on_undo_shortcut(event)
+        if self._is_shortcut_modifier_pressed(event) and self._event_matches_shortcut(event, "y"):
+            return self._on_redo_shortcut(event)
+        if self._is_shortcut_modifier_pressed(event) and self._event_matches_shortcut(event, "c"):
+            return self._on_copy_shortcut(event)
+        if self._is_shortcut_modifier_pressed(event) and self._event_matches_shortcut(event, "v"):
+            return self._on_paste_shortcut(event)
+        if self._is_shortcut_modifier_pressed(event) and self._event_matches_shortcut(event, "s"):
+            return self._on_save_shortcut(event)
+
         if self._is_shortcut_modifier_pressed(event):
-            if self._event_matches_shortcut(event, "z"):
-                return self._on_undo_shortcut(event)
-            if self._event_matches_shortcut(event, "y"):
-                return self._on_redo_shortcut(event)
-            if self._event_matches_shortcut(event, "c"):
-                return self._on_copy_shortcut(event)
-            if self._event_matches_shortcut(event, "v"):
-                return self._on_paste_shortcut(event)
-            if self._event_matches_shortcut(event, "s"):
-                return self._on_save_shortcut(event)
             if keysym == "left":
                 return self._on_grid_nudge_shortcut(event, dx=-1, dy=0)
             if keysym == "right":
@@ -805,7 +842,6 @@ class GridLabelingApp:
                 return self._on_grid_nudge_shortcut(event, dx=0, dy=-1)
             if keysym == "down":
                 return self._on_grid_nudge_shortcut(event, dx=0, dy=1)
-            return None
 
         # Unmodified key handling.
         if keysym == "left":
@@ -989,7 +1025,7 @@ class GridLabelingApp:
     def _on_quick_numeric_input(self, event: tk.Event) -> str | None:
         if not self.current_state:
             return None
-        if event.state & 0x0004:
+        if self._is_shortcut_modifier_pressed(event):
             return None
 
         if self._is_text_input_focused():
@@ -1070,7 +1106,7 @@ class GridLabelingApp:
         if self._is_text_input_focused():
             return None
 
-        ctrl_pressed = force_grid_edit or bool(_event.state & 0x0004)
+        ctrl_pressed = force_grid_edit or self._is_shortcut_modifier_pressed(_event)
         selected_objects = [obj for obj in self.current_state.objects if obj.object_id in self.selected_ids]
         if not selected_objects:
             return None
@@ -1439,6 +1475,9 @@ class GridLabelingApp:
         if self.live_apply_after_id is not None:
             self.root.after_cancel(self.live_apply_after_id)
             self.live_apply_after_id = None
+        if self.brightness_after_id is not None:
+            self.root.after_cancel(self.brightness_after_id)
+            self.brightness_after_id = None
         if self.quick_input_after_id is not None:
             self.root.after_cancel(self.quick_input_after_id)
             self.quick_input_after_id = None
@@ -1484,6 +1523,44 @@ class GridLabelingApp:
         self.mode_var.set(mode)
         self.status_var.set(status)
 
+    def _on_brightness_slider(self, value: str) -> None:
+        try:
+            factor = float(value)
+        except ValueError:
+            return
+        self._apply_brightness_factor(factor, sync_slider=False, sync_entry=True)
+
+    def _on_brightness_entry_commit(self, _event: tk.Event) -> str | None:
+        text = self.brightness_text_var.get().strip()
+        try:
+            factor = float(text)
+        except ValueError:
+            self.brightness_text_var.set(f"{self.brightness_factor:.2f}")
+            return "break"
+        self._apply_brightness_factor(factor, sync_slider=True, sync_entry=False)
+        return "break"
+
+    def _apply_brightness_factor(self, value: float, *, sync_slider: bool, sync_entry: bool) -> None:
+        clamped = min(max(value, 0.2), 3.0)
+        changed = abs(clamped - self.brightness_factor) > 1e-6
+        self.brightness_factor = clamped
+        if sync_slider:
+            self.brightness_var.set(clamped)
+        if sync_entry:
+            self.brightness_text_var.set(f"{clamped:.2f}")
+        if changed:
+            self._request_brightness_redraw()
+
+    def _request_brightness_redraw(self) -> None:
+        if self.brightness_after_id is not None:
+            self.root.after_cancel(self.brightness_after_id)
+        # Coalesce rapid slider updates for smoother visual feedback.
+        self.brightness_after_id = self.root.after(12, self._flush_brightness_redraw)
+
+    def _flush_brightness_redraw(self) -> None:
+        self.brightness_after_id = None
+        self._request_redraw()
+
     def _clear_selection(self, status_message: str | None = None) -> None:
         self.selected_ids.clear()
         self._sync_editor_with_selection()
@@ -1512,11 +1589,12 @@ class GridLabelingApp:
 
     def _is_shortcut_modifier_pressed(self, event: tk.Event) -> bool:
         # Tk state bits: Control=0x0004, Mod1=0x0008, Mod2=0x0010.
-        # On Windows/Linux we treat only Control as app-shortcut modifier.
-        # On macOS, Command is usually Mod2 (and can map via Mod1 in some setups).
+        state = event.state
+        # Keep this fixed and explicit for non-configured behaviors
+        # (e.g. Ctrl/Cmd + arrow grid nudge).
         if sys.platform == "darwin":
-            return bool(event.state & (0x0004 | 0x0008 | 0x0010))
-        return bool(event.state & 0x0004)
+            return bool(state & (0x0004 | 0x0008 | 0x0010))
+        return bool(state & 0x0004)
 
     def _normalize_label_token(self, label: str) -> str:
         lowered = (label or "").strip().lower()
